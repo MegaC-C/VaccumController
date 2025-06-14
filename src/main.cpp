@@ -2,22 +2,20 @@
 #include <Adafruit_SSD1306.h>
 #include <Arduino.h>
 #include <Wire.h>
+#include <avr/interrupt.h>
 
-// Pin definitions
-#define ENCODER_PIN_A     10
-#define ENCODER_PIN_B     9
+#define ENCODER_PIN_A     10 // D10 = PB2
+#define ENCODER_PIN_B     9  // D9  = PB1
 #define ENCODER_BTN_PIN   11
 #define BTN_NEXT_SCREEN   8
 #define BTN_PREV_SCREEN   12
 #define VACUUM_SENSOR_PIN A6
 
-// OLED setup
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET    -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// Globals
 const int min_target = 0;
 const int max_target = 1200;
 int target_mbar      = 0;
@@ -31,26 +29,38 @@ enum Screen
 };
 Screen currentScreen = MAIN;
 
-// Encoder state
-int lastA                 = HIGH;
-unsigned long lastEncMove = 0;
-#define ENCODER_DEBOUNCE_MS 5
+// Hybrid interrupt encoder
+volatile bool encoderEvent        = false;
+volatile int encoderDirection     = 0;
+volatile unsigned long lastEncISR = 0;
 
-// Encoder state for state machine
-int8_t encoderPos    = 0;
-int8_t encoderDelta  = 0;
-uint8_t lastEncState = 0;
+ISR(PCINT0_vect)
+{
+    static int lastA  = HIGH;
+    int a             = (PINB & (1 << PB2)) ? HIGH : LOW; // D10 = PB2
+    int b             = (PINB & (1 << PB1)) ? HIGH : LOW; // D9  = PB1
+    unsigned long now = millis();
 
-const int8_t enc_states[] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
-
-// Timing
-unsigned long lastUpdate           = 0;
-const unsigned long updateInterval = 100; // ms
+    if (a != lastA && a == HIGH && (now - lastEncISR) > 5)
+    { // Rising edge, debounce
+        if (b == LOW)
+        {
+            encoderDirection = 1; // Clockwise
+        }
+        else
+        {
+            encoderDirection = -1; // Counterclockwise
+        }
+        encoderEvent = true;
+        lastEncISR   = now;
+    }
+    lastA = a;
+}
 
 void setup()
 {
-    pinMode(ENCODER_PIN_A, INPUT_PULLUP);
-    pinMode(ENCODER_PIN_B, INPUT_PULLUP);
+    pinMode(ENCODER_PIN_A, INPUT_PULLUP); // D10
+    pinMode(ENCODER_PIN_B, INPUT_PULLUP); // D9
     pinMode(ENCODER_BTN_PIN, INPUT_PULLUP);
     pinMode(BTN_NEXT_SCREEN, INPUT_PULLUP);
     pinMode(BTN_PREV_SCREEN, INPUT_PULLUP);
@@ -68,36 +78,71 @@ void setup()
     display.display();
     delay(1000);
 
-    lastA = digitalRead(ENCODER_PIN_A);
+    // Set up PCINT for D10 (PB2)
+    PCICR |= (1 << PCIE0);   // Enable PCINT0 (D8-D13)
+    PCMSK0 |= (1 << PCINT2); // Enable PCINT2 (D10)
 
-    // Initialize encoder state
-    lastEncState = 0;
-    if (digitalRead(ENCODER_PIN_A)) lastEncState |= 2;
-    if (digitalRead(ENCODER_PIN_B)) lastEncState |= 1;
+    sei(); // Enable global interrupts
 }
 
-void handleEncoder()
-{
-    int a             = digitalRead(ENCODER_PIN_A);
-    int b             = digitalRead(ENCODER_PIN_B);
-    unsigned long now = millis();
+int calib_set_mbar = 1000; // Default, will be set on entering calibration
+bool inCalibration = false;
 
-    if (a != lastA && a == HIGH && (now - lastEncMove) > ENCODER_DEBOUNCE_MS)
+void handleScreenButtons(int measured_mbar)
+{
+    static int lastBtnNext = HIGH, lastBtnPrev = HIGH;
+    int btnNext = digitalRead(BTN_NEXT_SCREEN);
+    int btnPrev = digitalRead(BTN_PREV_SCREEN);
+
+    // Enter calibration
+    if (lastBtnNext == HIGH && btnNext == LOW && !inCalibration)
+    {
+        inCalibration  = true;
+        calib_set_mbar = measured_mbar; // Start with actual pressure
+    }
+    // Exit calibration
+    if (lastBtnPrev == HIGH && btnPrev == LOW && inCalibration)
+    {
+        calib_offset  = measured_mbar - calib_set_mbar;
+        inCalibration = false;
+    }
+    lastBtnNext = btnNext;
+    lastBtnPrev = btnPrev;
+}
+
+void handleEncoderHybridInterrupt()
+{
+    if (encoderEvent)
     {
         int step = stepIsTen ? 10 : 1;
-        if (b == LOW)
+        if (inCalibration)
         {
-            target_mbar += step; // Clockwise
+            if (encoderDirection == 1)
+            {
+                calib_set_mbar += step;
+            }
+            else if (encoderDirection == -1)
+            {
+                calib_set_mbar -= step;
+            }
+            if (calib_set_mbar < min_target) calib_set_mbar = min_target;
+            if (calib_set_mbar > max_target) calib_set_mbar = max_target;
         }
         else
         {
-            target_mbar -= step; // Counterclockwise
+            if (encoderDirection == 1)
+            {
+                target_mbar += step;
+            }
+            else if (encoderDirection == -1)
+            {
+                target_mbar -= step;
+            }
+            if (target_mbar < min_target) target_mbar = min_target;
+            if (target_mbar > max_target) target_mbar = max_target;
         }
-        if (target_mbar < min_target) target_mbar = min_target;
-        if (target_mbar > max_target) target_mbar = max_target;
-        lastEncMove = now;
+        encoderEvent = false;
     }
-    lastA = a;
 }
 
 void handleEncoderButton()
@@ -109,35 +154,6 @@ void handleEncoderButton()
         stepIsTen = !stepIsTen;
     }
     lastBtn = btn;
-}
-
-void handleEncoderStateMachine()
-{
-    // Read both pins and combine into 2-bit value
-    uint8_t enc = 0;
-    if (digitalRead(ENCODER_PIN_A)) enc |= 2;
-    if (digitalRead(ENCODER_PIN_B)) enc |= 1;
-
-    // Combine last state and current state into 4-bit index
-    uint8_t idx = (lastEncState << 2) | enc;
-    encoderDelta += enc_states[idx];
-    lastEncState = enc;
-
-    // Only update value if a full detent (4 steps) is reached
-    if (encoderDelta >= 4)
-    {
-        int step = stepIsTen ? 10 : 1;
-        target_mbar += step;
-        if (target_mbar > max_target) target_mbar = max_target;
-        encoderDelta = 0;
-    }
-    else if (encoderDelta <= -4)
-    {
-        int step = stepIsTen ? 10 : 1;
-        target_mbar -= step;
-        if (target_mbar < min_target) target_mbar = min_target;
-        encoderDelta = 0;
-    }
 }
 
 void drawMainScreen(int vacuum_mbar, int voltage_mv, int adc_samples)
@@ -162,6 +178,25 @@ void drawMainScreen(int vacuum_mbar, int voltage_mv, int adc_samples)
     display.display();
 }
 
+void drawCalibrationScreen(int measured_mbar)
+{
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.setTextSize(1);
+    display.println("Calibration");
+    display.print("Measured: ");
+    display.print(measured_mbar);
+    display.println(" mbar");
+    display.print("Set real: ");
+    display.print(calib_set_mbar);
+    display.println(" mbar");
+    display.println("D12=Save & Exit");
+    display.display();
+}
+
+unsigned long lastUpdate           = 0;
+const unsigned long updateInterval = 200; // ms
+
 void loop()
 {
     static long adcSum  = 0;
@@ -171,19 +206,30 @@ void loop()
     adcSum += analogRead(VACUUM_SENSOR_PIN);
     adcCount++;
 
-    handleEncoderStateMachine();
+    unsigned long now        = millis();
+    static int measured_mbar = 1000;
+    static int voltage_mv    = 0;
+
+    handleScreenButtons(measured_mbar);
+    handleEncoderHybridInterrupt();
     handleEncoderButton();
 
-    unsigned long now = millis();
     if (now - lastUpdate >= updateInterval)
     {
         lastUpdate = now;
 
-        int adcValue    = (adcCount > 0) ? (adcSum / adcCount) : 0;
-        int voltage_mv  = (adcValue * 5000L) / 1023;
-        int vacuum_mbar = ((voltage_mv - 500) * 1000L) / (4500 - 500);
+        int adcValue  = (adcCount > 0) ? (adcSum / adcCount) : 0;
+        voltage_mv    = (adcValue * 5000L) / 1023;
+        measured_mbar = ((voltage_mv - 500) * 1000L) / (4500 - 500);
 
-        drawMainScreen(vacuum_mbar, voltage_mv, adcCount);
+        if (inCalibration)
+        {
+            drawCalibrationScreen(measured_mbar);
+        }
+        else
+        {
+            drawMainScreen(measured_mbar, voltage_mv, adcCount);
+        }
 
         adcSum   = 0;
         adcCount = 0;
