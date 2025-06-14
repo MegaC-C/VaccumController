@@ -91,7 +91,7 @@ void setup()
 int calib_set_mbar = 1000; // Default, will be set on entering calibration
 bool inCalibration = false;
 
-void handleScreenButtons(int measured_mbar)
+void handleScreenButtons()
 {
     static int lastBtnNext = HIGH, lastBtnPrev = HIGH;
     int btnNext = digitalRead(BTN_NEXT_SCREEN);
@@ -110,7 +110,6 @@ void handleScreenButtons(int measured_mbar)
     // Exit calibration
     if (lastBtnPrev == HIGH && btnPrev == LOW && inCalibration)
     {
-        calib_offset  = measured_mbar - calib_set_mbar;
         inCalibration = false;
 
         // When you exit calibration mode (your logic for D8 button)
@@ -130,14 +129,12 @@ void handleEncoderHybridInterrupt()
         {
             if (encoderDirection == 1)
             {
-                calib_set_mbar += step;
+                calib_offset += step;
             }
             else if (encoderDirection == -1)
             {
-                calib_set_mbar -= step;
+                calib_offset -= step;
             }
-            if (calib_set_mbar < min_target) calib_set_mbar = min_target;
-            if (calib_set_mbar > max_target) calib_set_mbar = max_target;
         }
         else
         {
@@ -173,7 +170,7 @@ void drawMainScreen(int vacuum_mbar, int voltage_mv, int adc_samples)
     display.setCursor(0, 0);
     display.setTextSize(1);
     display.print("Vacuum: ");
-    display.print(vacuum_mbar - calib_offset);
+    display.print(vacuum_mbar);
     display.println(" mbar");
     display.print("Sensor: ");
     display.print(voltage_mv);
@@ -198,10 +195,9 @@ void drawCalibrationScreen(int measured_mbar)
     display.print("Measured: ");
     display.print(measured_mbar);
     display.println(" mbar");
-    display.print("Set real: ");
-    display.print(calib_set_mbar);
+    display.print("Offset: ");
+    display.print(calib_offset);
     display.println(" mbar");
-    display.println("D12=Save & Exit");
     display.display();
 }
 
@@ -221,7 +217,7 @@ void loop()
     static int measured_mbar = 1000;
     static int voltage_mv    = 0;
 
-    handleScreenButtons(measured_mbar);
+    handleScreenButtons();
     handleEncoderHybridInterrupt();
     handleEncoderButton();
 
@@ -231,7 +227,7 @@ void loop()
 
         int adcValue  = (adcCount > 0) ? (adcSum / adcCount) : 0;
         voltage_mv    = (adcValue * 5000L) / 1023;
-        measured_mbar = ((voltage_mv - 500) * 1000L) / (4500 - 500);
+        measured_mbar = (((voltage_mv - 500) * 1000L) / (4500 - 500)) + calib_offset;
 
         if (inCalibration)
         {
