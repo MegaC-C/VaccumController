@@ -1,6 +1,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Arduino.h>
+#include <EEPROM.h>
 #include <Wire.h>
 #include <avr/interrupt.h>
 
@@ -83,6 +84,8 @@ void setup()
     PCMSK0 |= (1 << PCINT2); // Enable PCINT2 (D10)
 
     sei(); // Enable global interrupts
+
+    calib_offset = EEPROM.read(0) | (EEPROM.read(1) << 8);
 }
 
 int calib_set_mbar = 1000; // Default, will be set on entering calibration
@@ -95,16 +98,24 @@ void handleScreenButtons(int measured_mbar)
     int btnPrev = digitalRead(BTN_PREV_SCREEN);
 
     // Enter calibration
-    if (lastBtnNext == HIGH && btnNext == LOW && !inCalibration)
+    if (lastBtnNext == HIGH && btnNext == LOW)
     {
-        inCalibration  = true;
-        calib_set_mbar = measured_mbar; // Start with actual pressure
+        inCalibration = !inCalibration;
+        if (!inCalibration)
+        {
+            EEPROM.write(0, calib_offset & 0xFF);
+            EEPROM.write(1, (calib_offset >> 8) & 0xFF);
+        }
     }
     // Exit calibration
     if (lastBtnPrev == HIGH && btnPrev == LOW && inCalibration)
     {
         calib_offset  = measured_mbar - calib_set_mbar;
         inCalibration = false;
+
+        // When you exit calibration mode (your logic for D8 button)
+        EEPROM.write(0, calib_offset & 0xFF);
+        EEPROM.write(1, (calib_offset >> 8) & 0xFF);
     }
     lastBtnNext = btnNext;
     lastBtnPrev = btnPrev;
