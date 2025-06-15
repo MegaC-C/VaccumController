@@ -145,43 +145,70 @@ void handleEncoderButton()
     lastBtn = btn;
 }
 
-void drawMainScreen(int vacuum_mbar, int voltage_mv, int adc_samples)
+void drawMainScreen(int vacuum_mbar)
 {
     display.clearDisplay();
     display.setCursor(0, 0);
-    display.setTextSize(1);
-    display.print("Vacuum: ");
-    display.print(vacuum_mbar);
-    display.println(" mbar");
-    display.print("Sensor: ");
-    display.print(voltage_mv);
-    display.println(" mV");
-    display.print("Target: ");
+
+    display.setTextSize(2);
+    display.print(" ");
     display.print(target_mbar);
+    display.setTextSize(1);
+    display.setCursor(display.getCursorX(), display.getCursorY() + 8);
+    display.print(" mbar");
+    display.println();
+    display.setTextSize(2);
+
+    // Calculate how many spaces to print to highlight the current step
+    int numDigits = String(target_mbar).length();
+    int spaces    = stepIsTen ? (numDigits - 1) : (numDigits);
+    if (spaces < 0) spaces = 0;
+    for (int i = 0; i < spaces; i++)
+        display.print(" ");
+    display.println("^");
+
+    display.print(" ");
+    display.setTextSize(3);
+    display.print(vacuum_mbar);
+    display.setTextSize(1);
+    display.setCursor(display.getCursorX(), display.getCursorY() + 16);
     display.println(" mbar");
-    display.print("Step: ");
-    display.print(stepIsTen ? 10 : 1);
-    display.println(" mbar");
-    display.print("ADC samples: ");
-    display.println(adc_samples);
+
+    display.setCursor(104, 0);
+    display.setTextSize(1);
+    
+    display.print("100%");
+
     display.display();
 }
 
-void drawCalibrationScreen(int vacuum_mbar, int voltage_mv)
+void drawCalibrationScreen(int vacuum_mbar, int voltage_mv, int adc_samples)
 {
     display.clearDisplay();
     display.setCursor(0, 0);
     display.setTextSize(1);
     display.println("Calibration");
-    display.print("Measured: ");
-    display.print(vacuum_mbar);
-    display.println(" mbar");
-    display.print("Sensor: ");
-    display.print(voltage_mv);
-    display.println(" mV");
     display.print("Offset: ");
     display.print(calibOffset_mbar);
     display.println(" mbar");
+
+    // Calculate how many spaces to print to highlight the current step
+    int numDigits = String(calibOffset_mbar).length();
+    int spaces    = stepIsTen ? (numDigits - 1) : (numDigits);
+    if (spaces < 0) spaces = 0;
+    display.print("       ");
+    for (int i = 0; i < spaces; i++)
+        display.print(" ");
+    display.println("^");
+
+    display.print("Vacuum: ");
+    display.print(vacuum_mbar);
+    display.println(" mbar");
+    display.print("Sensor ADC: ");
+    display.print(voltage_mv);
+    display.println(" mV");
+    display.print("ADC samples: ");
+    display.println(adc_samples);
     display.display();
 }
 
@@ -213,11 +240,11 @@ void loop()
 
         if (inCalibration)
         {
-            drawCalibrationScreen(measured_mbar, voltage_mv);
+            drawCalibrationScreen(measured_mbar, voltage_mv, adcCount);
         }
         else
         {
-            drawMainScreen(measured_mbar, voltage_mv, adcCount);
+            drawMainScreen(measured_mbar);
         }
 
         adcSum   = 0;
