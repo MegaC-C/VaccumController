@@ -30,7 +30,7 @@ bool pumpOn                 = false;
 
 double pidInput, pidOutput, pidSetpoint;
 double Kp = 2.0, Ki = 0.5, Kd = 1.0;
-PID vacuumPID(&pidInput, &pidOutput, &pidSetpoint, Kp, Ki, Kd, AUTOMATIC);
+PID vacuumPID(&pidInput, &pidOutput, &pidSetpoint, Kp, Ki, Kd, REVERSE);
 
 // Hybrid interrupt encoder
 volatile bool encoderEvent        = false;
@@ -69,6 +69,7 @@ void setup()
     pinMode(BTN_PUMP_ONOFF, INPUT_PULLUP);
     pinMode(PUMP_PWM_PIN, OUTPUT);
 
+    vacuumPID.SetMode(AUTOMATIC);
     vacuumPID.SetOutputLimits(0, 255);
 
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
@@ -166,7 +167,7 @@ void handlePumpButton()
     lastBtn = btn;
 }
 
-void drawMainScreen(int vacuum_mbar, double pumpPWM_percent)
+void drawMainScreen(int vacuum_mbar, int pumpPWM_percent)
 {
     display.clearDisplay();
     display.setCursor(0, 0);
@@ -280,7 +281,7 @@ void loop()
         }
         else
         {
-            drawMainScreen(measured_mbar, pidOutput);
+            drawMainScreen(measured_mbar, pumpPWM_percent);
         }
 
         adcSum   = 0;
