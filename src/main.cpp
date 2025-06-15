@@ -166,7 +166,7 @@ void drawMainScreen(int vacuum_mbar)
     display.print(" ");
     display.print(target_mbar);
     display.setTextSize(1);
-    display.setCursor(display.getCursorX(), display.getCursorY() + 8);
+    display.setCursor(display.getCursorX() - 3, display.getCursorY() + 7);
     display.print(" mbar");
     display.println();
     display.setTextSize(2);
@@ -180,15 +180,15 @@ void drawMainScreen(int vacuum_mbar)
     display.println("^");
 
     display.print(" ");
-    display.setTextSize(3);
+    display.setTextSize(4);
     display.print(vacuum_mbar);
     display.setTextSize(1);
-    display.setCursor(display.getCursorX(), display.getCursorY() + 16);
+    display.setCursor(display.getCursorX() - 6, display.getCursorY() + 21);
     display.println(" mbar");
 
     display.setCursor(104, 0);
     display.print(pumpOn ? "ON " : "OFF");
-    
+
     display.display();
 }
 
