@@ -72,6 +72,7 @@ void setup()
 
     vacuumPID.SetMode(AUTOMATIC);
     vacuumPID.SetOutputLimits(0, 255);
+    vacuumPID.SetSampleTime(100);
 
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
     {
