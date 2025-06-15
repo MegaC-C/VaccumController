@@ -9,7 +9,7 @@
 #define ENCODER_PIN_B     9  // D9  = PB1
 #define ENCODER_BTN_PIN   11
 #define BTN_CALIB_SCREEN  8
-#define BTN_PUMP          12
+#define BTN_PUMP_ONOFF    12
 #define VACUUM_SENSOR_PIN A6
 
 #define SCREEN_WIDTH  128
@@ -24,6 +24,7 @@ int target_mbar             = 1000;
 int calibOffset_mbar        = 0;
 bool stepIsTen              = true;
 bool inCalibration          = false;
+bool pumpOn                 = false;
 
 // Hybrid interrupt encoder
 volatile bool encoderEvent        = false;
@@ -59,7 +60,7 @@ void setup()
     pinMode(ENCODER_PIN_B, INPUT_PULLUP); // D9
     pinMode(ENCODER_BTN_PIN, INPUT_PULLUP);
     pinMode(BTN_CALIB_SCREEN, INPUT_PULLUP);
-    pinMode(BTN_PUMP, INPUT_PULLUP);
+    pinMode(BTN_PUMP_ONOFF, INPUT_PULLUP);
 
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
     {
@@ -145,6 +146,17 @@ void handleEncoderButton()
     lastBtn = btn;
 }
 
+void handlePumpButton()
+{
+    static int lastBtn = HIGH;
+    int btn            = digitalRead(BTN_PUMP_ONOFF);
+    if (lastBtn == HIGH && btn == LOW)
+    {
+        pumpOn = !pumpOn;
+    }
+    lastBtn = btn;
+}
+
 void drawMainScreen(int vacuum_mbar)
 {
     display.clearDisplay();
@@ -175,10 +187,8 @@ void drawMainScreen(int vacuum_mbar)
     display.println(" mbar");
 
     display.setCursor(104, 0);
-    display.setTextSize(1);
+    display.print(pumpOn ? "ON " : "OFF");
     
-    display.print("100%");
-
     display.display();
 }
 
@@ -229,6 +239,7 @@ void loop()
     handleScreenButtons();
     handleEncoderHybridInterrupt();
     handleEncoderButton();
+    handlePumpButton();
 
     if (now - lastUpdate_ms >= updateInterval_ms)
     {
