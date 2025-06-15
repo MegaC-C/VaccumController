@@ -23,6 +23,7 @@ const int updateInterval_ms = 200;
 const int min_mbar          = 0;
 const int max_mbar          = 1200;
 int target_mbar             = 1000;
+int measured_mbar           = 1000;
 int calibOffset_mbar        = 0;
 bool stepIsTen              = true;
 bool inCalibration          = false;
@@ -163,6 +164,17 @@ void handlePumpButton()
     if (lastBtn == HIGH && btn == LOW)
     {
         pumpOn = !pumpOn;
+
+        // Reset PID state when toggling pump
+        if (pumpOn)
+        {
+            vacuumPID.SetMode(AUTOMATIC);
+        }
+        else
+        {
+            vacuumPID.SetMode(MANUAL); // stop calulating PID when pump is off
+            pidOutput = 0;
+        }
     }
     lastBtn = btn;
 }
@@ -243,10 +255,10 @@ void loop()
 
     unsigned long now                  = millis();
     static unsigned long lastUpdate_ms = 0;
-    static int measured_mbar           = 1000;
-    static int voltage_mv              = 0;
-    static int pumpPWM                 = 0;
-    static int pumpPWM_percent         = 0;
+
+    static int voltage_mv      = 0;
+    static int pumpPWM         = 0;
+    static int pumpPWM_percent = 0;
 
     handleScreenButtons();
     handleEncoderHybridInterrupt();
