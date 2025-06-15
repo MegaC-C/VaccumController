@@ -2,14 +2,16 @@
 #include <Adafruit_SSD1306.h>
 #include <Arduino.h>
 #include <EEPROM.h>
+#include <PID_v1.h>
 #include <Wire.h>
 #include <avr/interrupt.h>
 
-#define ENCODER_PIN_A     10 // D10 = PB2
-#define ENCODER_PIN_B     9  // D9  = PB1
+#define ENCODER_PIN_A     10
+#define ENCODER_PIN_B     9
 #define ENCODER_BTN_PIN   11
 #define BTN_CALIB_SCREEN  8
 #define BTN_PUMP_ONOFF    12
+#define PUMP_PWM_PIN      3
 #define VACUUM_SENSOR_PIN A6
 
 #define SCREEN_WIDTH  128
@@ -25,6 +27,10 @@ int calibOffset_mbar        = 0;
 bool stepIsTen              = true;
 bool inCalibration          = false;
 bool pumpOn                 = false;
+
+double pidInput, pidOutput, pidSetpoint;
+double Kp = 2.0, Ki = 0.5, Kd = 1.0;
+PID vacuumPID(&pidInput, &pidOutput, &pidSetpoint, Kp, Ki, Kd, AUTOMATIC);
 
 // Hybrid interrupt encoder
 volatile bool encoderEvent        = false;
@@ -56,11 +62,14 @@ ISR(PCINT0_vect)
 
 void setup()
 {
-    pinMode(ENCODER_PIN_A, INPUT_PULLUP); // D10
-    pinMode(ENCODER_PIN_B, INPUT_PULLUP); // D9
+    pinMode(ENCODER_PIN_A, INPUT_PULLUP);
+    pinMode(ENCODER_PIN_B, INPUT_PULLUP);
     pinMode(ENCODER_BTN_PIN, INPUT_PULLUP);
     pinMode(BTN_CALIB_SCREEN, INPUT_PULLUP);
     pinMode(BTN_PUMP_ONOFF, INPUT_PULLUP);
+    pinMode(PUMP_PWM_PIN, OUTPUT);
+
+    vacuumPID.SetOutputLimits(0, 255);
 
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
     {
@@ -157,7 +166,7 @@ void handlePumpButton()
     lastBtn = btn;
 }
 
-void drawMainScreen(int vacuum_mbar)
+void drawMainScreen(int vacuum_mbar, double pumpPWM_percent)
 {
     display.clearDisplay();
     display.setCursor(0, 0);
@@ -187,7 +196,7 @@ void drawMainScreen(int vacuum_mbar)
     display.println(" mbar");
 
     display.setCursor(104, 0);
-    display.print(pumpOn ? "ON " : "OFF");
+    display.print(pumpOn ? String(pumpPWM_percent) + "%" : "OFF");
 
     display.display();
 }
@@ -235,6 +244,8 @@ void loop()
     static unsigned long lastUpdate_ms = 0;
     static int measured_mbar           = 1000;
     static int voltage_mv              = 0;
+    static int pumpPWM                 = 0;
+    static int pumpPWM_percent         = 0;
 
     handleScreenButtons();
     handleEncoderHybridInterrupt();
@@ -249,13 +260,27 @@ void loop()
         voltage_mv    = (adcValue * 5000L) / 1023;
         measured_mbar = (((voltage_mv - 500) * 1000L) / (4500 - 500)) + calibOffset_mbar;
 
+        if (pumpOn)
+        {
+            pidInput    = (double)measured_mbar;
+            pidSetpoint = (double)target_mbar;
+            vacuumPID.Compute();
+            pumpPWM         = (int)pidOutput;
+            pumpPWM_percent = (pumpPWM * 100) / 255;
+            analogWrite(PUMP_PWM_PIN, pumpPWM);
+        }
+        else
+        {
+            analogWrite(PUMP_PWM_PIN, 0);
+        }
+
         if (inCalibration)
         {
             drawCalibrationScreen(measured_mbar, voltage_mv, adcCount);
         }
         else
         {
-            drawMainScreen(measured_mbar);
+            drawMainScreen(measured_mbar, pidOutput);
         }
 
         adcSum   = 0;
