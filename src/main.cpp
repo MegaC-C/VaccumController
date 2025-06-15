@@ -261,19 +261,12 @@ void loop()
         voltage_mv    = (adcValue * 5000L) / 1023;
         measured_mbar = (((voltage_mv - 500) * 1000L) / (4500 - 500)) + calibOffset_mbar;
 
-        if (pumpOn)
-        {
-            pidInput    = (double)measured_mbar;
-            pidSetpoint = (double)target_mbar;
-            vacuumPID.Compute();
-            pumpPWM         = (int)pidOutput;
-            pumpPWM_percent = (pumpPWM * 100) / 255;
-            analogWrite(PUMP_PWM_PIN, pumpPWM);
-        }
-        else
-        {
-            analogWrite(PUMP_PWM_PIN, 0);
-        }
+        pidInput    = (double)measured_mbar;
+        pidSetpoint = (double)target_mbar;
+        vacuumPID.Compute();
+        pumpPWM         = (int)pidOutput;
+        pumpPWM_percent = (pumpPWM * 100) / 255;
+        analogWrite(PUMP_PWM_PIN, pumpOn ? pumpPWM : 0);
 
         if (inCalibration)
         {
